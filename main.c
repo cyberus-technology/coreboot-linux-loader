@@ -21,7 +21,7 @@ static void die_on(bool condition, char *string, ...)
     }
 }
 
-struct bzimage_params {
+struct boot_params {
     size_t kernel_addr;
     size_t initrd_addr;
     size_t initrd_size_addr;
@@ -33,13 +33,13 @@ enum boot_protocol {
     LINUX,
 };
 
-static struct bzimage_params get_boot_params_from_fw_cfg();
-static enum boot_protocol get_boot_protocol(struct bzimage_params);
-void linux_boot(struct bzimage_params);
+static struct boot_params get_boot_params_from_fw_cfg();
+static enum boot_protocol get_boot_protocol(struct boot_params);
+void linux_boot(struct boot_params);
 
 int main(void)
 {
-    struct bzimage_params params = get_boot_params_from_fw_cfg();
+    struct boot_params params = get_boot_params_from_fw_cfg();
     enum boot_protocol boot_protocol = get_boot_protocol(params);
 
     switch (boot_protocol) {
@@ -52,7 +52,7 @@ int main(void)
 }
 
 // Identify the type of the kernel.
-static enum boot_protocol get_boot_protocol(struct bzimage_params params)
+static enum boot_protocol get_boot_protocol(struct boot_params params)
 {
     size_t kernel_addr = params.kernel_addr;
 
@@ -67,9 +67,9 @@ static enum boot_protocol get_boot_protocol(struct bzimage_params params)
     return UNKNOWN;
 }
 
-static struct bzimage_params get_boot_params_from_fw_cfg()
+static struct boot_params get_boot_params_from_fw_cfg()
 {
-    struct bzimage_params params = {
+    struct boot_params params = {
         .kernel_addr = 0, .initrd_addr = 0, .initrd_size_addr = 0, .cmdline_addr = 0};
 
     uint16_t selector;
@@ -98,16 +98,16 @@ static struct bzimage_params get_boot_params_from_fw_cfg()
 
 // Linux boot follows the Linux x86 32-bit Boot Protocol
 // (https://www.kernel.org/doc/html/latest/x86/boot.html#bit-boot-protocol).
-void linux_boot(struct bzimage_params bzimage_params)
+void linux_boot(struct boot_params boot_params)
 {
     die_on(
-        bzimage_params.kernel_addr == 0,
+        boot_params.kernel_addr == 0,
         "bzImage start address not found!\n"
         "The VMM does not offer a Linux kernel via fw-cfg. Is the relevant config option missing?\n");
 
-    printf("Loading Linux kernel from address: 0x%lx\n", bzimage_params.kernel_addr);
+    printf("Loading Linux kernel from address: 0x%lx\n", boot_params.kernel_addr);
 
-    char *linux_header_end = (char *)(bzimage_params.kernel_addr + 0x201);
+    char *linux_header_end = (char *)(boot_params.kernel_addr + 0x201);
     size_t linux_header_size = 0x202 + *linux_header_end - LINUX_HEADER_OFFSET;
 
     struct linux_params *linux_params = malloc(sizeof(*linux_params));
@@ -117,7 +117,7 @@ void linux_boot(struct bzimage_params bzimage_params)
            "Invalid linux header size");
 
     memcpy((char *)linux_params + LINUX_HEADER_OFFSET,
-           (const char *)(bzimage_params.kernel_addr + LINUX_HEADER_OFFSET),
+           (const char *)(boot_params.kernel_addr + LINUX_HEADER_OFFSET),
            linux_header_size); // load header
 
     die_on(linux_params->param_block_version < 0x0205,
@@ -125,7 +125,7 @@ void linux_boot(struct bzimage_params bzimage_params)
     die_on(
         !linux_params->relocatable_kernel,
         "Kernel is not relocatable. The Linux kernel must be built with CONFIG_RELOCATABLE=y\n");
-    die_on(bzimage_params.kernel_addr % linux_params->kernel_alignment != 0,
+    die_on(boot_params.kernel_addr % linux_params->kernel_alignment != 0,
            "Kernel needs to be aligned at 0x%x\n", linux_params->kernel_alignment);
 
     printf("Setting up E820 map\n");
@@ -140,13 +140,13 @@ void linux_boot(struct bzimage_params bzimage_params)
     // There is a maximum size for the command line, which could be obtained from the kernel
     // header if the boot protocol version is >= 2.06. We don't check anything here and
     // simply assume the user knows what they are doing.
-    if (bzimage_params.cmdline_addr != 0) {
-        linux_params->cmd_line_ptr = bzimage_params.cmdline_addr;
+    if (boot_params.cmdline_addr != 0) {
+        linux_params->cmd_line_ptr = boot_params.cmdline_addr;
     }
 
-    if (bzimage_params.initrd_addr != 0) {
-        linux_params->initrd_start = bzimage_params.initrd_addr;
-        linux_params->initrd_size = *(u32 *)bzimage_params.initrd_size_addr;
+    if (boot_params.initrd_addr != 0) {
+        linux_params->initrd_start = boot_params.initrd_addr;
+        linux_params->initrd_size = *(u32 *)boot_params.initrd_size_addr;
 
         die_on(linux_params->initrd_start + linux_params->initrd_size
                    > linux_params->initrd_addr_max,
@@ -166,12 +166,11 @@ void linux_boot(struct bzimage_params bzimage_params)
         setup_sects = 4;
     }
 
-    size_t entry_ptr_32bit = bzimage_params.kernel_addr + (setup_sects + 1) * 512;
+    size_t entry_ptr_32bit = boot_params.kernel_addr + (setup_sects + 1) * 512;
 
     // An overflowing unsigned integer addition will simply wrap. Such an overflow can be
     // detected by checking whether the result is smaller than one of the original values.
-    die_on(entry_ptr_32bit < bzimage_params.kernel_addr,
-           "32-bit entry pointer lies beyond 4G\n");
+    die_on(entry_ptr_32bit < boot_params.kernel_addr, "32-bit entry pointer lies beyond 4G\n");
 
     asm volatile("jmp *%[entry_ptr];" ::[entry_ptr] "r"(entry_ptr_32bit), "S"(linux_params),
                  "m"(linux_params));
