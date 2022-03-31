@@ -4,6 +4,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only  */
 
 
+#include "elf_boot.h"
 #include "linux_params.h"
 #include "fw_cfg.h"
 
@@ -31,11 +32,13 @@ struct boot_params {
 enum boot_protocol {
     UNKNOWN,
     LINUX,
+    ELF,
 };
 
 static struct boot_params get_boot_params_from_fw_cfg();
 static enum boot_protocol get_boot_protocol(struct boot_params);
 void linux_boot(struct boot_params);
+void elf_boot(struct boot_params);
 
 int main(void)
 {
@@ -46,8 +49,13 @@ int main(void)
     case LINUX:
         linux_boot(params);
         break;
+    case ELF:
+        elf_boot(params);
+        break;
     default:
-        die_on(true, "Failed to recognize kernel file format. Supported format is bzImage.\n");
+        die_on(
+            true,
+            "Failed to recognize kernel file format. Supported format is bzImage and 32-bit ELF.\n");
     }
 }
 
@@ -57,6 +65,12 @@ static enum boot_protocol get_boot_protocol(struct boot_params params)
     size_t kernel_addr = params.kernel_addr;
 
     die_on(kernel_addr == 0, "Did not find the address of kernel.\n");
+
+    // ELF binaries begin with a magic number.
+    // Check this first because the ELF contents might accidentally match other checks.
+    if (memcmp((uint32_t *)(kernel_addr), ELF_MAGIC, 4) == 0) {
+        return ELF;
+    }
 
     // Linux kernel supporting the "new" boot protocol have a magic number at a specific offset.
     // See https://www.kernel.org/doc/Documentation/x86/boot.txt.
@@ -174,6 +188,100 @@ void linux_boot(struct boot_params boot_params)
 
     asm volatile("jmp *%[entry_ptr];" ::[entry_ptr] "r"(entry_ptr_32bit), "S"(linux_params),
                  "m"(linux_params));
+
+    __builtin_unreachable();
+}
+
+// Boot an ELF binary according to the Multiboot specification.
+//
+// This boot method:
+//
+// 1. Extracts the ELF binary.
+// 2. Prepares Multiboot information (to pass the optional command line).
+// 3. Jumps to the extracted ELF's entry point.
+void elf_boot(struct boot_params params)
+{
+    die_on(
+        params.kernel_addr == 0,
+        "kernel start address not found!\n"
+        "The VMM does not offer an ELF via fw-cfg. Is the relevant config option missing?\n");
+
+    // Minimal (32-bit) ELF loading.
+    struct elf32_header *elf = (struct elf32_header *)params.kernel_addr;
+    printf("Loading ELF from address: %p\n", elf);
+
+    die_on(elf->class != ELF_CLASS_32BIT, "Unsupported ELF kernel. ELF is not 32-bit.\n");
+    die_on(elf->data != ELF_DATA_LITTLE_ENDIAN,
+           "Unsupported ELF kernel. ELF uses big endianness.\n");
+    die_on(elf->version != ELF_VERSION,
+           "Unsupported ELF kernel. ELF version is unsupported.\n");
+    die_on(elf->type != ELF_TYPE_EXECUTABLE, "Unsupported ELF kernel. Unknown ELF type 0x%x!\n",
+           elf->type);
+    die_on(elf->ehsize != sizeof(struct elf32_header),
+           "Unsupported ELF kernel. ELF header size of %d does not match 32-bit ELF file.\n",
+           elf->ehsize);
+    die_on(
+        elf->phentsize != sizeof(struct elf32_program_header),
+        "Unsupported ELF kernel. ELF program header size %d does not match 32-bit ELF file!\n",
+        elf->phentsize);
+
+    // The ELF file is loaded to memory already. We need that start address to copy its contents
+    // (such as code and data) to the correct location.
+    const uint8_t *elf_addr_in_memory = (const uint8_t *)elf;
+
+    // Each entry in the program header table describes a memory region.
+    // We prepare the contents of each region, but ignore the access rights.
+    struct elf32_program_header *current_program_header =
+        (struct elf32_program_header *)(elf_addr_in_memory + elf->phoff);
+
+    for (uint16_t i = 0; i < elf->phnum; i++) {
+        const uint8_t *current_elf_segment_in_memory =
+            elf_addr_in_memory + current_program_header->offset;
+
+        printf(
+            "Loading ELF segment (type 0x%x, offset 0x%x, vaddr 0x%x, paddr 0x%x, filesize 0x%x, memsize 0x%x)\n",
+            current_program_header->type, current_program_header->offset,
+            current_program_header->vaddr, current_program_header->paddr,
+            current_program_header->filesize, current_program_header->memsize);
+
+        // TODO: Assert that ELF contents don't overwrite anything.
+        // The sysinfo lib could be used to detect whether the destination is usable RAM.
+        // When adding such a check, determine which memory regions coreboot uses
+        // so that upcoming memory allocations don't conflict.
+
+        // At this point, we have a 1:1 mapping of virtual and physical memory. Use the physical
+        // address because the ELF program may modify page tables to use a custom virtual memory
+        // layout that matches the segment's vaddr.
+        uint8_t *dest_addr = (uint8_t *)current_program_header->paddr;
+
+        // Copy contents of the region from the ELF file.
+        memcpy(dest_addr, current_elf_segment_in_memory, current_program_header->filesize);
+
+        // Fill remainder of the region with zeroes (used for BSS segment).
+        memset(dest_addr + current_program_header->filesize, 0,
+               current_program_header->memsize - current_program_header->filesize);
+
+        current_program_header++;
+    }
+
+    // Prepare Multiboot information.
+    struct mb_boot_information_required *mbinfo = malloc(sizeof(*mbinfo));
+    memset(mbinfo, 0, sizeof(*mbinfo));
+
+    if (params.cmdline_addr != 0) {
+        mbinfo->flags |= FLAG_CMDLINE_BIT;
+        mbinfo->cmdline = params.cmdline_addr;
+    }
+
+    // Jump to the ELF's entry point.
+    //
+    // Coreboot has already prepared the machine state specified in
+    // https://www.gnu.org/software/grub/manual/multiboot/multiboot.html#Machine-state
+    asm volatile("jmp *%[entry_ptr];" ::[entry_ptr] "r"(elf->entry),
+                 // Pass address of Multiboot information structure in EBX.
+                 "b"(mbinfo),
+                 // Report being a multiboot v1 loader in EAX.
+                 "a"(MULTIBOOT_BOOTLOADER_MAGIC));
 
     __builtin_unreachable();
 }
