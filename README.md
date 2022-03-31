@@ -7,7 +7,7 @@ assumes that a qemu [fw_cfg](https://github.com/qemu/qemu/blob/master/docs/specs
 is available and obtains the exact memory addresses from this device. During the boot process, the
 payload inspects the following items in `fw_cfg`:
 
-- `opt/de.cyberus-technology/bzimage_addr`: (mandatory) the start address of the raw bzImage in
+- `opt/de.cyberus-technology/kernel_addr`: (mandatory) the start address of the raw bzImage in
   memory
 - `opt/de.cyberus-technology/initrd_addr`: (optional) the start address of the raw initrd image in
   memory
@@ -52,7 +52,7 @@ qemu-system-x86_64 -bios "${COREBOOT_FILE}" -nographic -serial mon:stdio -m 2G -
   -device loader,addr=0x60000000,file="${INITRD_FILE}",force-raw=on \
   -device loader,addr=0x10000000,file=./cmdline_file,force-raw=on \
   -device loader,addr=0x20000000,data=$(stat --printf="%s" "${INITRD_FILE}"),data-len=4 \
-  -fw_cfg opt/de.cyberus-technology/bzimage_addr,file=./bzimage_addr \
+  -fw_cfg opt/de.cyberus-technology/kernel_addr,file=./bzimage_addr \
   -fw_cfg opt/de.cyberus-technology/initrd_addr,file=./initrd_addr \
   -fw_cfg opt/de.cyberus-technology/cmdline_addr,file=./cmdline_addr \
   -fw_cfg opt/de.cyberus-technology/initrd_size_addr,file=./initrd_size_addr

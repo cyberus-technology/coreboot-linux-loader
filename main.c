@@ -22,7 +22,7 @@ static void die_on(bool condition, char *string, ...)
 }
 
 struct bzimage_params {
-    size_t bzimage_addr;
+    size_t kernel_addr;
     size_t initrd_addr;
     size_t initrd_size_addr;
     size_t cmdline_addr;
@@ -54,13 +54,13 @@ int main(void)
 // Identify the type of the kernel.
 static enum boot_protocol get_boot_protocol(struct bzimage_params params)
 {
-    size_t bzimage_addr = params.bzimage_addr;
+    size_t kernel_addr = params.kernel_addr;
 
-    die_on(bzimage_addr == 0, "Did not find the address of kernel.\n");
+    die_on(kernel_addr == 0, "Did not find the address of kernel.\n");
 
     // Linux kernel supporting the "new" boot protocol have a magic number at a specific offset.
     // See https://www.kernel.org/doc/Documentation/x86/boot.txt.
-    if (memcmp((uint32_t *)(bzimage_addr + 0x202), "HdrS", 4) == 0) {
+    if (memcmp((uint32_t *)(kernel_addr + 0x202), "HdrS", 4) == 0) {
         return LINUX;
     }
 
@@ -70,13 +70,13 @@ static enum boot_protocol get_boot_protocol(struct bzimage_params params)
 static struct bzimage_params get_boot_params_from_fw_cfg()
 {
     struct bzimage_params params = {
-        .bzimage_addr = 0, .initrd_addr = 0, .initrd_size_addr = 0, .cmdline_addr = 0};
+        .kernel_addr = 0, .initrd_addr = 0, .initrd_size_addr = 0, .cmdline_addr = 0};
 
     uint16_t selector;
 
-    selector = fw_cfg_selector_for("opt/de.cyberus-technology/bzimage_addr");
+    selector = fw_cfg_selector_for("opt/de.cyberus-technology/kernel_addr");
     if (selector != 0) {
-        fw_cfg_get(selector, &params.bzimage_addr, sizeof(params.bzimage_addr));
+        fw_cfg_get(selector, &params.kernel_addr, sizeof(params.kernel_addr));
     }
 
     selector = fw_cfg_selector_for("opt/de.cyberus-technology/initrd_addr");
@@ -101,13 +101,13 @@ static struct bzimage_params get_boot_params_from_fw_cfg()
 void linux_boot(struct bzimage_params bzimage_params)
 {
     die_on(
-        bzimage_params.bzimage_addr == 0,
+        bzimage_params.kernel_addr == 0,
         "bzImage start address not found!\n"
         "The VMM does not offer a Linux kernel via fw-cfg. Is the relevant config option missing?\n");
 
-    printf("Loading Linux kernel from address: 0x%lx\n", bzimage_params.bzimage_addr);
+    printf("Loading Linux kernel from address: 0x%lx\n", bzimage_params.kernel_addr);
 
-    char *linux_header_end = (char *)(bzimage_params.bzimage_addr + 0x201);
+    char *linux_header_end = (char *)(bzimage_params.kernel_addr + 0x201);
     size_t linux_header_size = 0x202 + *linux_header_end - LINUX_HEADER_OFFSET;
 
     struct linux_params *boot_params = malloc(sizeof(*boot_params));
@@ -117,7 +117,7 @@ void linux_boot(struct bzimage_params bzimage_params)
            "Invalid linux header size");
 
     memcpy((char *)boot_params + LINUX_HEADER_OFFSET,
-           (const char *)(bzimage_params.bzimage_addr + LINUX_HEADER_OFFSET),
+           (const char *)(bzimage_params.kernel_addr + LINUX_HEADER_OFFSET),
            linux_header_size); // load header
 
     die_on(boot_params->param_block_version < 0x0205,
@@ -125,7 +125,7 @@ void linux_boot(struct bzimage_params bzimage_params)
     die_on(
         !boot_params->relocatable_kernel,
         "Kernel is not relocatable. The Linux kernel must be built with CONFIG_RELOCATABLE=y\n");
-    die_on(bzimage_params.bzimage_addr % boot_params->kernel_alignment != 0,
+    die_on(bzimage_params.kernel_addr % boot_params->kernel_alignment != 0,
            "Kernel needs to be aligned at 0x%x\n", boot_params->kernel_alignment);
 
     printf("Setting up E820 map\n");
@@ -166,11 +166,11 @@ void linux_boot(struct bzimage_params bzimage_params)
         setup_sects = 4;
     }
 
-    size_t entry_ptr_32bit = bzimage_params.bzimage_addr + (setup_sects + 1) * 512;
+    size_t entry_ptr_32bit = bzimage_params.kernel_addr + (setup_sects + 1) * 512;
 
     // An overflowing unsigned integer addition will simply wrap. Such an overflow can be
     // detected by checking whether the result is smaller than one of the original values.
-    die_on(entry_ptr_32bit < bzimage_params.bzimage_addr,
+    die_on(entry_ptr_32bit < bzimage_params.kernel_addr,
            "32-bit entry pointer lies beyond 4G\n");
 
     asm volatile("jmp *%[entry_ptr];" ::[entry_ptr] "r"(entry_ptr_32bit), "S"(boot_params),
