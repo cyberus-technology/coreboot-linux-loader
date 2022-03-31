@@ -50,7 +50,7 @@ echo -n -e "earlyprintk=ttyS0 console=ttyS0\x00" > cmdline_file
 qemu-system-x86_64 -bios "${COREBOOT_FILE}" -nographic -serial mon:stdio -m 2G -enable-kvm \
   -device loader,addr=0x40000000,file="${BZIMAGE_FILE}",force-raw=on \
   -device loader,addr=0x60000000,file="${INITRD_FILE}",force-raw=on \
-  -device loader,addr=0x10000000,file=./cmdline_file.txt,force-raw=on \
+  -device loader,addr=0x10000000,file=./cmdline_file,force-raw=on \
   -device loader,addr=0x20000000,data=$(stat --printf="%s" "${INITRD_FILE}"),data-len=4 \
   -fw_cfg opt/de.cyberus-technology/bzimage_addr,file=./bzimage_addr \
   -fw_cfg opt/de.cyberus-technology/initrd_addr,file=./initrd_addr \
