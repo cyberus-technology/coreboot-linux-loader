@@ -11,9 +11,20 @@
 #include <libpayload-config.h>
 #include <libpayload.h>
 
+void dump_memory_map()
+{
+    printf("Memory map:\n");
+    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
+        struct memrange *memrange = &lib_sysinfo.memrange[i];
+        printf("  Start: 0x%08llx, Size: 0x%08llx, Type: 0x%02x\n", memrange->base,
+               memrange->size, memrange->type);
+    }
+}
+
 static void die_on(const bool condition, const char *string, ...)
 {
     if (condition) {
+        dump_memory_map();
         va_list ptr;
         va_start(ptr, string);
         vprintf(string, ptr);
