@@ -11,7 +11,7 @@
 #include <libpayload-config.h>
 #include <libpayload.h>
 
-static void die_on(bool condition, char *string, ...)
+static void die_on(const bool condition, const char *string, ...)
 {
     if (condition) {
         va_list ptr;
@@ -42,7 +42,7 @@ void elf_boot(struct boot_params);
 
 int main(void)
 {
-    struct boot_params params = get_boot_params_from_fw_cfg();
+    const struct boot_params params = get_boot_params_from_fw_cfg();
     enum boot_protocol boot_protocol = get_boot_protocol(params);
 
     switch (boot_protocol) {
@@ -60,21 +60,19 @@ int main(void)
 }
 
 // Identify the type of the kernel.
-static enum boot_protocol get_boot_protocol(struct boot_params params)
+static enum boot_protocol get_boot_protocol(const struct boot_params params)
 {
-    uintptr_t kernel_addr = params.kernel_addr;
-
-    die_on(kernel_addr == 0, "Did not find the address of kernel.\n");
+    die_on(params.kernel_addr == 0, "Did not find the address of kernel.\n");
 
     // ELF binaries begin with a magic number.
     // Check this first because the ELF contents might accidentally match other checks.
-    if (memcmp((uint32_t *)(kernel_addr), ELF_MAGIC, 4) == 0) {
+    if (memcmp((const void *)params.kernel_addr, ELF_MAGIC, 4) == 0) {
         return ELF;
     }
 
     // Linux kernel supporting the "new" boot protocol have a magic number at a specific offset.
     // See https://www.kernel.org/doc/Documentation/x86/boot.txt.
-    if (memcmp((uint32_t *)(kernel_addr + 0x202), "HdrS", 4) == 0) {
+    if (memcmp((const void *)(params.kernel_addr + 0x202), "HdrS", 4) == 0) {
         return LINUX;
     }
 
@@ -112,7 +110,7 @@ static struct boot_params get_boot_params_from_fw_cfg()
 
 // Linux boot follows the Linux x86 32-bit Boot Protocol
 // (https://www.kernel.org/doc/html/latest/x86/boot.html#bit-boot-protocol).
-void linux_boot(struct boot_params boot_params)
+void linux_boot(const struct boot_params boot_params)
 {
     die_on(
         boot_params.kernel_addr == 0,
@@ -199,7 +197,7 @@ void linux_boot(struct boot_params boot_params)
 // 1. Extracts the ELF binary.
 // 2. Prepares Multiboot information (to pass the optional command line).
 // 3. Jumps to the extracted ELF's entry point.
-void elf_boot(struct boot_params params)
+void elf_boot(const struct boot_params params)
 {
     die_on(
         params.kernel_addr == 0,
@@ -207,7 +205,7 @@ void elf_boot(struct boot_params params)
         "The VMM does not offer an ELF via fw-cfg. Is the relevant config option missing?\n");
 
     // Minimal (32-bit) ELF loading.
-    struct elf32_header *elf = (struct elf32_header *)params.kernel_addr;
+    const struct elf32_header *elf = (struct elf32_header *)params.kernel_addr;
     printf("Loading ELF from address: %p\n", elf);
 
     die_on(elf->class != ELF_CLASS_32BIT, "Unsupported ELF kernel. ELF is not 32-bit.\n");
@@ -252,13 +250,14 @@ void elf_boot(struct boot_params params)
         // At this point, we have a 1:1 mapping of virtual and physical memory. Use the physical
         // address because the ELF program may modify page tables to use a custom virtual memory
         // layout that matches the segment's vaddr.
-        uint8_t *dest_addr = (uint8_t *)current_program_header->paddr;
+        const uintptr_t dest_addr = (uintptr_t)current_program_header->paddr;
 
         // Copy contents of the region from the ELF file.
-        memcpy(dest_addr, current_elf_segment_in_memory, current_program_header->filesize);
+        memcpy((void *)dest_addr, current_elf_segment_in_memory,
+               current_program_header->filesize);
 
         // Fill remainder of the region with zeroes (used for BSS segment).
-        memset(dest_addr + current_program_header->filesize, 0,
+        memset((void *)(dest_addr + current_program_header->filesize), 0,
                current_program_header->memsize - current_program_header->filesize);
 
         current_program_header++;
