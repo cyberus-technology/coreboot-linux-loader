@@ -23,10 +23,10 @@ static void die_on(bool condition, char *string, ...)
 }
 
 struct boot_params {
-    size_t kernel_addr;
-    size_t initrd_addr;
-    size_t initrd_size_addr;
-    size_t cmdline_addr;
+    uintptr_t kernel_addr;
+    uintptr_t initrd_addr;
+    uintptr_t initrd_size_addr;
+    uintptr_t cmdline_addr;
 };
 
 enum boot_protocol {
@@ -62,7 +62,7 @@ int main(void)
 // Identify the type of the kernel.
 static enum boot_protocol get_boot_protocol(struct boot_params params)
 {
-    size_t kernel_addr = params.kernel_addr;
+    uintptr_t kernel_addr = params.kernel_addr;
 
     die_on(kernel_addr == 0, "Did not find the address of kernel.\n");
 
@@ -180,7 +180,7 @@ void linux_boot(struct boot_params boot_params)
         setup_sects = 4;
     }
 
-    size_t entry_ptr_32bit = boot_params.kernel_addr + (setup_sects + 1) * 512;
+    uintptr_t entry_ptr_32bit = boot_params.kernel_addr + (setup_sects + 1) * 512;
 
     // An overflowing unsigned integer addition will simply wrap. Such an overflow can be
     // detected by checking whether the result is smaller than one of the original values.
