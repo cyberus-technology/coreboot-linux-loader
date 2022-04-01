@@ -46,10 +46,18 @@ enum boot_protocol {
     ELF,
 };
 
+struct memory_region {
+    uintptr_t addr;
+    size_t size;
+};
+
 static struct boot_params get_boot_params_from_fw_cfg();
 static enum boot_protocol get_boot_protocol(struct boot_params);
 void linux_boot(struct boot_params);
 void elf_boot(struct boot_params);
+bool memory_regions_overlap(const struct memory_region first,
+                            const struct memory_region second);
+bool is_in_usable_coreboot_memory_region(const struct memory_region region);
 
 int main(void)
 {
@@ -253,24 +261,36 @@ void elf_boot(const struct boot_params params)
             current_program_header->vaddr, current_program_header->paddr,
             current_program_header->filesize, current_program_header->memsize);
 
-        // TODO: Assert that ELF contents don't overwrite anything.
-        // The sysinfo lib could be used to detect whether the destination is usable RAM.
-        // When adding such a check, determine which memory regions coreboot uses
-        // so that upcoming memory allocations don't conflict.
-
-        // At this point, we have a 1:1 mapping of virtual and physical memory. Use the physical
-        // address because the ELF program may modify page tables to use a custom virtual memory
-        // layout that matches the segment's vaddr.
-        const uintptr_t dest_addr = (uintptr_t)current_program_header->paddr;
-        die_on(dest_addr == 0,
+        // At this point, we have a 1:1 mapping of virtual and physical memory. Use the
+        // physical address because the ELF program may modify page tables to use a custom
+        // virtual memory layout that matches the segment's vaddr.
+        const struct memory_region elf_region = {
+            .addr = (uintptr_t)current_program_header->paddr,
+            .size = current_program_header->filesize + current_program_header->memsize};
+        die_on(elf_region.addr == 0,
                "Unsupported ELF kernel. ELF segment has physical address 0x0.\n");
 
+        // Try to verify that ELF unpacking doesn't overwrite anything.
+        // Unfortunately, there is no way to ensure that the memory region which are in use in
+        // this loader don't get overwritten.
+        die_on(
+            !is_in_usable_coreboot_memory_region(elf_region),
+            "Memory map conflict. ELF segment is in unusable memory (address:  0x%x, size: %d).\n",
+            elf_region.addr, elf_region.size);
+
+        if (params.cmdline_addr != 0) {
+            const struct memory_region cmdline_region = {
+                .addr = params.cmdline_addr, .size = strlen((const char *)params.cmdline_addr)};
+            die_on(memory_regions_overlap(elf_region, cmdline_region),
+                   "Memory map conflict. ELF segment overwrites command line.\n");
+        }
+
         // Copy contents of the region from the ELF file.
-        memcpy((void *)dest_addr, current_elf_segment_in_memory,
-               current_program_header->filesize);
+        memmove((void *)elf_region.addr, current_elf_segment_in_memory,
+                current_program_header->filesize);
 
         // Fill remainder of the region with zeroes (used for BSS segment).
-        memset((void *)(dest_addr + current_program_header->filesize), 0,
+        memset((void *)(elf_region.addr + current_program_header->filesize), 0,
                current_program_header->memsize - current_program_header->filesize);
 
         current_program_header++;
@@ -296,4 +316,46 @@ void elf_boot(const struct boot_params params)
                  "a"(MULTIBOOT_BOOTLOADER_MAGIC));
 
     __builtin_unreachable();
+}
+
+// Returns true if two memory regions overlap.
+bool memory_regions_overlap(const struct memory_region first, const struct memory_region second)
+{
+    const struct memory_region lower = first.addr <= second.addr ? first : second;
+    const struct memory_region higher = first.addr <= second.addr ? second : first;
+
+    // Completely disjunct regions?
+    if (higher.addr >= lower.addr + lower.size) {
+        return false;
+    }
+
+    return true;
+}
+
+bool contains(const struct memory_region container, const struct memory_region containee)
+{
+    return container.addr <= containee.addr
+           && ((container.addr + container.size) >= (containee.addr + containee.size));
+}
+
+// Check whether the given memory region is within a single usable coreboot memory region.
+bool is_in_usable_coreboot_memory_region(const struct memory_region region)
+{
+    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
+        struct memrange *memrange = &lib_sysinfo.memrange[i];
+        const struct memory_region coreboot_region = {.addr = memrange->base,
+                                                      .size = memrange->size};
+
+        switch (memrange->type) {
+        case CB_MEM_RAM:
+            printf("Checking RAM region 0x%lx - -0x%lx\n", coreboot_region.addr,
+                   coreboot_region.addr + coreboot_region.size);
+            if (contains(coreboot_region, region)) {
+                return true;
+            }
+        default:
+        }
+    }
+
+    return false;
 }
