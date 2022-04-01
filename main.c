@@ -223,6 +223,19 @@ void elf_boot(const struct boot_params params)
         "kernel start address not found!\n"
         "The VMM does not offer an ELF via fw-cfg. Is the relevant config option missing?\n");
 
+    // We currently don't have a way to check whether the ELF section which are later
+    // unpacked overlap with coreboot's heap. Unpacking the ELF may overwrite the Multiboot
+    // information. The ELF program has the chance to detect this situation when checking
+    // the Multiboot information's integrity. Therefore, we prepare Multiboot information
+    // before unpacking the ELF.
+    struct mb_boot_information_required *mbinfo = malloc(sizeof(*mbinfo));
+    memset(mbinfo, 0, sizeof(*mbinfo));
+
+    if (params.cmdline_addr != 0) {
+        mbinfo->flags |= FLAG_CMDLINE_BIT;
+        mbinfo->cmdline = params.cmdline_addr;
+    }
+
     // Minimal (32-bit) ELF loading.
     const struct elf32_header *elf = (struct elf32_header *)params.kernel_addr;
     printf("Loading ELF from address: %p\n", elf);
@@ -294,15 +307,6 @@ void elf_boot(const struct boot_params params)
                current_program_header->memsize - current_program_header->filesize);
 
         current_program_header++;
-    }
-
-    // Prepare Multiboot information.
-    struct mb_boot_information_required *mbinfo = malloc(sizeof(*mbinfo));
-    memset(mbinfo, 0, sizeof(*mbinfo));
-
-    if (params.cmdline_addr != 0) {
-        mbinfo->flags |= FLAG_CMDLINE_BIT;
-        mbinfo->cmdline = params.cmdline_addr;
     }
 
     // Jump to the ELF's entry point.
