@@ -251,6 +251,8 @@ void elf_boot(const struct boot_params params)
         // address because the ELF program may modify page tables to use a custom virtual memory
         // layout that matches the segment's vaddr.
         const uintptr_t dest_addr = (uintptr_t)current_program_header->paddr;
+        die_on(dest_addr == 0,
+               "Unsupported ELF kernel. ELF segment has physical address 0x0.\n");
 
         // Copy contents of the region from the ELF file.
         memcpy((void *)dest_addr, current_elf_segment_in_memory,
