@@ -21,12 +21,8 @@ static inline bool memory_regions_overlap(const struct memory_region first,
     const struct memory_region lower = first.addr <= second.addr ? first : second;
     const struct memory_region higher = first.addr <= second.addr ? second : first;
 
-    // Completely disjunct regions?
-    if (higher.addr >= lower.addr + lower.size) {
-        return false;
-    }
-
-    return true;
+    // When the higher region is not "behind" the lower region, the regions overlap.
+    return higher.addr < lower.addr + lower.size;
 }
 
 static inline bool memory_region_contains(const struct memory_region container,
