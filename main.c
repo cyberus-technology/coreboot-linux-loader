@@ -98,7 +98,7 @@ static struct boot_params get_boot_params_from_fw_cfg()
 
 
 // Check whether the given memory region is within a single usable coreboot memory region.
-bool is_in_usable_coreboot_memory_region(const struct memory_region region)
+static bool is_in_usable_coreboot_memory_region(const struct memory_region region)
 {
     for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
         struct memrange *memrange = &lib_sysinfo.memrange[i];
@@ -121,7 +121,7 @@ bool is_in_usable_coreboot_memory_region(const struct memory_region region)
 
 // Linux boot follows the Linux x86 32-bit Boot Protocol
 // (https://www.kernel.org/doc/html/latest/x86/boot.html#bit-boot-protocol).
-void linux_boot(const struct boot_params boot_params)
+static void linux_boot(const struct boot_params boot_params)
 {
     die_on(
         boot_params.kernel_addr == 0,
@@ -208,7 +208,7 @@ void linux_boot(const struct boot_params boot_params)
 // 1. Extracts the ELF binary.
 // 2. Prepares Multiboot information (to pass the optional command line).
 // 3. Jumps to the extracted ELF's entry point.
-void elf_boot(const struct boot_params params)
+static void elf_boot(const struct boot_params params)
 {
     die_on(
         params.kernel_addr == 0,
