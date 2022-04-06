@@ -47,31 +47,6 @@ enum boot_protocol {
     ELF,
 };
 
-static struct boot_params get_boot_params_from_fw_cfg();
-static enum boot_protocol get_boot_protocol(struct boot_params);
-void linux_boot(struct boot_params);
-void elf_boot(struct boot_params);
-bool is_in_usable_coreboot_memory_region(const struct memory_region region);
-
-int main(void)
-{
-    const struct boot_params params = get_boot_params_from_fw_cfg();
-    enum boot_protocol boot_protocol = get_boot_protocol(params);
-
-    switch (boot_protocol) {
-    case LINUX:
-        linux_boot(params);
-        break;
-    case ELF:
-        elf_boot(params);
-        break;
-    default:
-        die_on(
-            true,
-            "Failed to recognize kernel file format. Supported format is bzImage and 32-bit ELF.\n");
-    }
-}
-
 // Identify the type of the kernel.
 static enum boot_protocol get_boot_protocol(const struct boot_params params)
 {
@@ -119,6 +94,29 @@ static struct boot_params get_boot_params_from_fw_cfg()
         fw_cfg_get(selector, &params.cmdline_addr, sizeof(params.cmdline_addr));
     }
     return params;
+}
+
+
+// Check whether the given memory region is within a single usable coreboot memory region.
+bool is_in_usable_coreboot_memory_region(const struct memory_region region)
+{
+    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
+        struct memrange *memrange = &lib_sysinfo.memrange[i];
+        const struct memory_region coreboot_region = {.addr = memrange->base,
+                                                      .size = memrange->size};
+
+        switch (memrange->type) {
+        case CB_MEM_RAM:
+            printf("Checking RAM region 0x%lx - -0x%lx\n", coreboot_region.addr,
+                   coreboot_region.addr + coreboot_region.size);
+            if (memory_region_contains(coreboot_region, region)) {
+                return true;
+            }
+        default:
+        }
+    }
+
+    return false;
 }
 
 // Linux boot follows the Linux x86 32-bit Boot Protocol
@@ -316,24 +314,21 @@ void elf_boot(const struct boot_params params)
     __builtin_unreachable();
 }
 
-// Check whether the given memory region is within a single usable coreboot memory region.
-bool is_in_usable_coreboot_memory_region(const struct memory_region region)
+int main(void)
 {
-    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
-        struct memrange *memrange = &lib_sysinfo.memrange[i];
-        const struct memory_region coreboot_region = {.addr = memrange->base,
-                                                      .size = memrange->size};
+    const struct boot_params params = get_boot_params_from_fw_cfg();
+    enum boot_protocol boot_protocol = get_boot_protocol(params);
 
-        switch (memrange->type) {
-        case CB_MEM_RAM:
-            printf("Checking RAM region 0x%lx - -0x%lx\n", coreboot_region.addr,
-                   coreboot_region.addr + coreboot_region.size);
-            if (memory_region_contains(coreboot_region, region)) {
-                return true;
-            }
-        default:
-        }
+    switch (boot_protocol) {
+    case LINUX:
+        linux_boot(params);
+        break;
+    case ELF:
+        elf_boot(params);
+        break;
+    default:
+        die_on(
+            true,
+            "Failed to recognize kernel file format. Supported format is bzImage and 32-bit ELF.\n");
     }
-
-    return false;
 }
