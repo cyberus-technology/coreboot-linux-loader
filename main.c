@@ -67,32 +67,30 @@ static enum boot_protocol get_boot_protocol(const struct boot_params params)
     return UNKNOWN;
 }
 
+// Try to read a firmware config value from the given key.
+//
+// Returns 0 if the key does not exist.
+static uintptr_t try_get_fw_cfg_ptr(const char *key)
+{
+    const uint16_t selector = fw_cfg_selector_for(key);
+    uintptr_t value = 0;
+
+    if (selector != 0) {
+        fw_cfg_get(selector, &value, sizeof(value));
+    }
+
+    return value;
+}
+
 static struct boot_params get_boot_params_from_fw_cfg()
 {
     struct boot_params params = {
-        .kernel_addr = 0, .initrd_addr = 0, .initrd_size_addr = 0, .cmdline_addr = 0};
+        .kernel_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/kernel_addr"),
+        .initrd_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/initrd_addr"),
+        .initrd_size_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/initrd_size_addr"),
+        .cmdline_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/cmdline_addr"),
+    };
 
-    uint16_t selector;
-
-    selector = fw_cfg_selector_for("opt/de.cyberus-technology/kernel_addr");
-    if (selector != 0) {
-        fw_cfg_get(selector, &params.kernel_addr, sizeof(params.kernel_addr));
-    }
-
-    selector = fw_cfg_selector_for("opt/de.cyberus-technology/initrd_addr");
-    if (selector != 0) {
-        fw_cfg_get(selector, &params.initrd_addr, sizeof(params.initrd_addr));
-    }
-
-    selector = fw_cfg_selector_for("opt/de.cyberus-technology/initrd_size_addr");
-    if (selector != 0) {
-        fw_cfg_get(selector, &params.initrd_size_addr, sizeof(params.initrd_size_addr));
-    }
-
-    selector = fw_cfg_selector_for("opt/de.cyberus-technology/cmdline_addr");
-    if (selector != 0) {
-        fw_cfg_get(selector, &params.cmdline_addr, sizeof(params.cmdline_addr));
-    }
     return params;
 }
 
