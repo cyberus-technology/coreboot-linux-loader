@@ -6,12 +6,13 @@
 
 #include "elf_boot.h"
 #include "linux_params.h"
+#include "memory_region.h"
 #include "fw_cfg.h"
 
 #include <libpayload-config.h>
 #include <libpayload.h>
 
-void dump_memory_map()
+static void dump_memory_map()
 {
     printf("Memory map:\n");
     for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
@@ -46,38 +47,6 @@ enum boot_protocol {
     ELF,
 };
 
-struct memory_region {
-    uintptr_t addr;
-    size_t size;
-};
-
-static struct boot_params get_boot_params_from_fw_cfg();
-static enum boot_protocol get_boot_protocol(struct boot_params);
-void linux_boot(struct boot_params);
-void elf_boot(struct boot_params);
-bool memory_regions_overlap(const struct memory_region first,
-                            const struct memory_region second);
-bool is_in_usable_coreboot_memory_region(const struct memory_region region);
-
-int main(void)
-{
-    const struct boot_params params = get_boot_params_from_fw_cfg();
-    enum boot_protocol boot_protocol = get_boot_protocol(params);
-
-    switch (boot_protocol) {
-    case LINUX:
-        linux_boot(params);
-        break;
-    case ELF:
-        elf_boot(params);
-        break;
-    default:
-        die_on(
-            true,
-            "Failed to recognize kernel file format. Supported format is bzImage and 32-bit ELF.\n");
-    }
-}
-
 // Identify the type of the kernel.
 static enum boot_protocol get_boot_protocol(const struct boot_params params)
 {
@@ -98,38 +67,59 @@ static enum boot_protocol get_boot_protocol(const struct boot_params params)
     return UNKNOWN;
 }
 
+// Try to read a firmware config value from the given key.
+//
+// Returns 0 if the key does not exist.
+static uintptr_t try_get_fw_cfg_ptr(const char *key)
+{
+    const uint16_t selector = fw_cfg_selector_for(key);
+    uintptr_t value = 0;
+
+    if (selector != 0) {
+        fw_cfg_get(selector, &value, sizeof(value));
+    }
+
+    return value;
+}
+
 static struct boot_params get_boot_params_from_fw_cfg()
 {
     struct boot_params params = {
-        .kernel_addr = 0, .initrd_addr = 0, .initrd_size_addr = 0, .cmdline_addr = 0};
+        .kernel_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/kernel_addr"),
+        .initrd_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/initrd_addr"),
+        .initrd_size_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/initrd_size_addr"),
+        .cmdline_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/cmdline_addr"),
+    };
 
-    uint16_t selector;
-
-    selector = fw_cfg_selector_for("opt/de.cyberus-technology/kernel_addr");
-    if (selector != 0) {
-        fw_cfg_get(selector, &params.kernel_addr, sizeof(params.kernel_addr));
-    }
-
-    selector = fw_cfg_selector_for("opt/de.cyberus-technology/initrd_addr");
-    if (selector != 0) {
-        fw_cfg_get(selector, &params.initrd_addr, sizeof(params.initrd_addr));
-    }
-
-    selector = fw_cfg_selector_for("opt/de.cyberus-technology/initrd_size_addr");
-    if (selector != 0) {
-        fw_cfg_get(selector, &params.initrd_size_addr, sizeof(params.initrd_size_addr));
-    }
-
-    selector = fw_cfg_selector_for("opt/de.cyberus-technology/cmdline_addr");
-    if (selector != 0) {
-        fw_cfg_get(selector, &params.cmdline_addr, sizeof(params.cmdline_addr));
-    }
     return params;
+}
+
+
+// Check whether the given memory region is within a single usable coreboot memory region.
+static bool is_in_usable_coreboot_memory_region(const struct memory_region region)
+{
+    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
+        struct memrange *memrange = &lib_sysinfo.memrange[i];
+        const struct memory_region coreboot_region = {.addr = memrange->base,
+                                                      .size = memrange->size};
+
+        switch (memrange->type) {
+        case CB_MEM_RAM:
+            printf("Checking RAM region 0x%lx - -0x%lx\n", coreboot_region.addr,
+                   coreboot_region.addr + coreboot_region.size);
+            if (memory_region_contains(coreboot_region, region)) {
+                return true;
+            }
+        default:
+        }
+    }
+
+    return false;
 }
 
 // Linux boot follows the Linux x86 32-bit Boot Protocol
 // (https://www.kernel.org/doc/html/latest/x86/boot.html#bit-boot-protocol).
-void linux_boot(const struct boot_params boot_params)
+static void linux_boot(const struct boot_params boot_params)
 {
     die_on(
         boot_params.kernel_addr == 0,
@@ -216,7 +206,7 @@ void linux_boot(const struct boot_params boot_params)
 // 1. Extracts the ELF binary.
 // 2. Prepares Multiboot information (to pass the optional command line).
 // 3. Jumps to the extracted ELF's entry point.
-void elf_boot(const struct boot_params params)
+static void elf_boot(const struct boot_params params)
 {
     die_on(
         params.kernel_addr == 0,
@@ -322,44 +312,21 @@ void elf_boot(const struct boot_params params)
     __builtin_unreachable();
 }
 
-// Returns true if two memory regions overlap.
-bool memory_regions_overlap(const struct memory_region first, const struct memory_region second)
+int main(void)
 {
-    const struct memory_region lower = first.addr <= second.addr ? first : second;
-    const struct memory_region higher = first.addr <= second.addr ? second : first;
+    const struct boot_params params = get_boot_params_from_fw_cfg();
+    enum boot_protocol boot_protocol = get_boot_protocol(params);
 
-    // Completely disjunct regions?
-    if (higher.addr >= lower.addr + lower.size) {
-        return false;
+    switch (boot_protocol) {
+    case LINUX:
+        linux_boot(params);
+        break;
+    case ELF:
+        elf_boot(params);
+        break;
+    default:
+        die_on(
+            true,
+            "Failed to recognize kernel file format. Supported format is bzImage and 32-bit ELF.\n");
     }
-
-    return true;
-}
-
-bool contains(const struct memory_region container, const struct memory_region containee)
-{
-    return container.addr <= containee.addr
-           && ((container.addr + container.size) >= (containee.addr + containee.size));
-}
-
-// Check whether the given memory region is within a single usable coreboot memory region.
-bool is_in_usable_coreboot_memory_region(const struct memory_region region)
-{
-    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
-        struct memrange *memrange = &lib_sysinfo.memrange[i];
-        const struct memory_region coreboot_region = {.addr = memrange->base,
-                                                      .size = memrange->size};
-
-        switch (memrange->type) {
-        case CB_MEM_RAM:
-            printf("Checking RAM region 0x%lx - -0x%lx\n", coreboot_region.addr,
-                   coreboot_region.addr + coreboot_region.size);
-            if (contains(coreboot_region, region)) {
-                return true;
-            }
-        default:
-        }
-    }
-
-    return false;
 }
