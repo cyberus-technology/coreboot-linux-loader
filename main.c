@@ -12,7 +12,7 @@
 #include <libpayload-config.h>
 #include <libpayload.h>
 
-void dump_memory_map()
+static void dump_memory_map()
 {
     printf("Memory map:\n");
     for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
