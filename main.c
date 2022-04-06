@@ -6,6 +6,7 @@
 
 #include "elf_boot.h"
 #include "linux_params.h"
+#include "memory_region.h"
 #include "fw_cfg.h"
 
 #include <libpayload-config.h>
@@ -46,17 +47,10 @@ enum boot_protocol {
     ELF,
 };
 
-struct memory_region {
-    uintptr_t addr;
-    size_t size;
-};
-
 static struct boot_params get_boot_params_from_fw_cfg();
 static enum boot_protocol get_boot_protocol(struct boot_params);
 void linux_boot(struct boot_params);
 void elf_boot(struct boot_params);
-bool memory_regions_overlap(const struct memory_region first,
-                            const struct memory_region second);
 bool is_in_usable_coreboot_memory_region(const struct memory_region region);
 
 int main(void)
@@ -322,26 +316,6 @@ void elf_boot(const struct boot_params params)
     __builtin_unreachable();
 }
 
-// Returns true if two memory regions overlap.
-bool memory_regions_overlap(const struct memory_region first, const struct memory_region second)
-{
-    const struct memory_region lower = first.addr <= second.addr ? first : second;
-    const struct memory_region higher = first.addr <= second.addr ? second : first;
-
-    // Completely disjunct regions?
-    if (higher.addr >= lower.addr + lower.size) {
-        return false;
-    }
-
-    return true;
-}
-
-bool contains(const struct memory_region container, const struct memory_region containee)
-{
-    return container.addr <= containee.addr
-           && ((container.addr + container.size) >= (containee.addr + containee.size));
-}
-
 // Check whether the given memory region is within a single usable coreboot memory region.
 bool is_in_usable_coreboot_memory_region(const struct memory_region region)
 {
@@ -354,7 +328,7 @@ bool is_in_usable_coreboot_memory_region(const struct memory_region region)
         case CB_MEM_RAM:
             printf("Checking RAM region 0x%lx - -0x%lx\n", coreboot_region.addr,
                    coreboot_region.addr + coreboot_region.size);
-            if (contains(coreboot_region, region)) {
+            if (memory_region_contains(coreboot_region, region)) {
                 return true;
             }
         default:
