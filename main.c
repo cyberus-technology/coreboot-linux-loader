@@ -137,7 +137,7 @@ static void linux_boot(const struct boot_params boot_params)
     printf("  pref_address: 0x%llx\n", l_params->pref_address);
     printf("\n");
 
-    char *linux_header_end = (char *)(boot_params.kernel_addr + 0x201);
+    uint8_t *linux_header_end = (uint8_t *)(boot_params.kernel_addr + 0x201);
     size_t linux_header_size = 0x202 + *linux_header_end - LINUX_HEADER_OFFSET;
 
     struct linux_params *linux_params = malloc(sizeof(*linux_params));
@@ -146,8 +146,8 @@ static void linux_boot(const struct boot_params boot_params)
     die_on(LINUX_HEADER_OFFSET + linux_header_size > sizeof(*linux_params),
            "Invalid linux header size");
 
-    memcpy((char *)linux_params + LINUX_HEADER_OFFSET,
-           (const char *)(boot_params.kernel_addr + LINUX_HEADER_OFFSET),
+    memcpy((uint8_t *)linux_params + LINUX_HEADER_OFFSET,
+           (const uint8_t *)(boot_params.kernel_addr + LINUX_HEADER_OFFSET),
            linux_header_size); // load header
 
     die_on(linux_params->param_block_version < 0x0205,
