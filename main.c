@@ -167,12 +167,6 @@ static void linux_boot(const struct boot_params boot_params)
            (const uint8_t *)(boot_params.kernel_addr + LINUX_HEADER_OFFSET),
            linux_header_size); // load header
 
-    die_on(
-        !linux_params->relocatable_kernel,
-        "Kernel is not relocatable. The Linux kernel must be built with CONFIG_RELOCATABLE=y\n");
-    die_on(boot_params.kernel_addr % linux_params->kernel_alignment != 0,
-           "Kernel needs to be aligned at 0x%x\n", linux_params->kernel_alignment);
-
     printf("Setting up E820 map\n");
     // Coreboot already obtained the memory map. Simply copy it over into the kernel params.
     linux_params->e820_map_nr = lib_sysinfo.n_memranges;
@@ -208,11 +202,65 @@ static void linux_boot(const struct boot_params boot_params)
     // From spec: "For backwards compatibility, if the setup_sects field contains 0, the real value is 4."
     const uint8_t setup_sects = linux_params->setup_hdr == 0 ? 4 : linux_params->setup_hdr;
 
-    const uintptr_t entry_ptr_32bit = boot_params.kernel_addr + (setup_sects + 1) * 512;
+    const uintptr_t entry_ptr_32bit = linux_params->pref_address + (setup_sects + 1) * 512;
 
     // An overflowing unsigned integer addition will simply wrap. Such an overflow can be
     // detected by checking whether the result is smaller than one of the original values.
-    die_on(entry_ptr_32bit < boot_params.kernel_addr, "32-bit entry pointer lies beyond 4G\n");
+    die_on(entry_ptr_32bit < l_params->pref_address, "32-bit entry pointer lies beyond 4G\n");
+
+    // Checks if a relocation of the kernel is required.
+    // We decided that the loader moves all kernels to their preferred address, even if they
+    // are relocatable, thus, could relocate themselves.
+    if (boot_params.kernel_addr != linux_params->pref_address)
+    {
+        printf(
+            "Relocating kernel from 0x%lx to 0x%llx.\n",
+            boot_params.kernel_addr,
+            linux_params->pref_address
+        );
+
+        const uintptr_t kernel_begin_addr = linux_params->pref_address;
+        const uintptr_t kernel_end_addr = kernel_begin_addr + linux_params->init_size;
+
+        // check if the space is valid in the memory map
+        uint8_t kernel_in_valid_mem_range = 0;
+        for (size_t i = 0; i < lib_sysinfo.n_memranges; i++) {
+            // the location must be in valid RAM
+            if (lib_sysinfo.memrange[i].type == CB_MEM_RAM) {
+                uintptr_t mem_range_begin = lib_sysinfo.memrange[i].base;
+                uintptr_t mem_range_end = mem_range_begin + lib_sysinfo.memrange[i].size;
+                if (kernel_begin_addr >= mem_range_begin
+                    && kernel_end_addr < mem_range_end) {
+                    kernel_in_valid_mem_range = 1;
+                }
+            }
+        }
+        die_on(
+            !kernel_in_valid_mem_range,
+            "the preferred load address is not in available RAM (according to memory map)"
+        );
+
+        // check that the kernel will not clash with the initrd after relocation
+        const uintptr_t initrd_size = *(uint64_t *)boot_params.initrd_size_addr;
+        die_on(kernel_begin_addr >= boot_params.initrd_addr
+                   && linux_params->pref_address < boot_params.initrd_addr + initrd_size,
+               "Kernel load address collides with initrd\n"
+        );
+
+        // check that the kernel will not clash with the cmdline after relocation
+        die_on(kernel_begin_addr >= boot_params.cmdline_addr
+                   && linux_params->pref_address < boot_params.cmdline_addr + linux_params->cmdline_size,
+               "Kernel load address collides with cmdline\n"
+        );
+
+        // Do the relocation.
+        // memmove and not memcpy; might overlap
+        memmove(
+            (void *) (uintptr_t) linux_params->pref_address,
+            (void *) boot_params.kernel_addr,
+            linux_params->init_size
+        );
+    }
 
     asm volatile("jmp *%[entry_ptr];" ::[entry_ptr] "r"(entry_ptr_32bit), "S"(linux_params),
                  "m"(linux_params));
