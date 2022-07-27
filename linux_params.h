@@ -105,22 +105,30 @@ struct linux_params {
     uint32_t kernel_start;              /* 0x214 */
     uint32_t initrd_start;              /* 0x218 */
     uint32_t initrd_size;               /* 0x21c */
-    uint8_t reserved12_5[8];            /* 0x220 */
+    uint8_t reserved13[8];            /* 0x220 */
     uint32_t cmd_line_ptr;              /* 0x228 */
     uint32_t initrd_addr_max;           /* 0x22c */
     uint32_t kernel_alignment;          /* 0x230 */
     uint8_t relocatable_kernel;         /* 0x234 */
-    uint8_t reserved13[0x2b];           /* 0x235 */
+    uint8_t min_alignment;              /* 0x235 */
+    uint16_t xloadflags;                /* 0x236 */
+    uint32_t cmdline_size;              /* 0x238 */
+    uint32_t hardware_subarch;          /* 0x23C */
+    uint64_t hardware_subarch_data;     /* 0x240 */
+    uint32_t payload_offset;            /* 0x248 */
+    uint32_t payload_length;            /* 0x24c */
+    uint64_t setup_data;                /* 0x250 */
+    uint64_t pref_address;              /* 0x258 */
     uint32_t init_size;                 /* 0x260 */
     uint8_t reserved14[0x6c];           /* 0x264 */
     struct e820entry e820_map[E820MAX]; /* 0x2d0 */
-    uint8_t reserved16[688];            /* 0x550 */
+    uint8_t reserved15[688];            /* 0x550 */
 #define COMMAND_LINE_SIZE 256
     /* Command line is copied here by 32-bit i386/kernel/head.S.
      * So I will follow the boot protocol, rather than putting it
      * directly here. --ts1 */
     uint8_t command_line[COMMAND_LINE_SIZE]; /* 0x800 */
-    uint8_t reserved17[1792];                /* 0x900 - 0x1000 */
+    uint8_t reserved16[1792];                /* 0x900 - 0x1000 */
 };
 
 #endif /* LINUX_PARAMS_H */

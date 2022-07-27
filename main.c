@@ -128,6 +128,15 @@ static void linux_boot(const struct boot_params boot_params)
 
     printf("Loading Linux kernel from address: 0x%lx\n", boot_params.kernel_addr);
 
+    // Print relevant information about how the Linux kernel would like to be booted
+    const struct linux_params *const l_params = (const struct linux_params *const) boot_params.kernel_addr;
+    printf("Info from Linux Boot Protocol Header:\n");
+    printf("  kernel_alignment: 0x%x\n", l_params->kernel_alignment);
+    printf("  relocatable_kernel: %s\n", l_params->relocatable_kernel ? "true" : "false");
+    printf("  min_alignment: 0x%x\n", 0x1 << l_params->min_alignment);
+    printf("  pref_address: 0x%llx\n", l_params->pref_address);
+    printf("\n");
+
     char *linux_header_end = (char *)(boot_params.kernel_addr + 0x201);
     size_t linux_header_size = 0x202 + *linux_header_end - LINUX_HEADER_OFFSET;
 
@@ -183,6 +192,7 @@ static void linux_boot(const struct boot_params boot_params)
 
     uint8_t setup_sects = linux_params->setup_hdr;
 
+    // From spec: "For backwards compatibility, if the setup_sects field contains 0, the real value is 4."
     if (setup_sects == 0) {
         setup_sects = 4;
     }
