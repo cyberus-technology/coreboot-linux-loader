@@ -34,10 +34,15 @@ static void die_on(const bool condition, const char *string, ...)
     }
 }
 
+// Data provided by the VMM to the loader via the fw_cfg device.
 struct boot_params {
+    // Physical address of the kernel image.
     uintptr_t kernel_addr;
+    // Physical address of the initrd image.
     uintptr_t initrd_addr;
+    // Physical address of the initrd size.
     uintptr_t initrd_size_addr;
+    // Physical address of the cmd line string (a null-terminated C-string).
     uintptr_t cmdline_addr;
 };
 
