@@ -15,6 +15,10 @@
 
 #define LINUX_HEADER_OFFSET 0x1f1
 
+// Macro that encodes the used Linux boot protocol version according to the spec.
+#define TO_LINUX_BOOT_HEADER_VERSION(major, minor) \
+    ((major) << 8 | (minor))
+
 #define E820MAX 32 /* number of entries in E820MAP */
 struct e820entry {
     uint64_t addr; /* start of memory segment */
