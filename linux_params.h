@@ -15,6 +15,9 @@
 
 #define LINUX_HEADER_OFFSET 0x1f1
 
+// Value from the spec that can be used to validate the header.
+#define LINUX_HEADER_SIGNATURE 0x53726448
+
 // Macro that encodes the used Linux boot protocol version according to the spec.
 #define TO_LINUX_BOOT_HEADER_VERSION(major, minor) \
     (major << 8 | minor)

@@ -140,14 +140,18 @@ static void linux_boot(const struct boot_params boot_params)
 
     // Print relevant information about how the Linux kernel would like to be booted
     const struct linux_params *const l_params = (const struct linux_params *const) boot_params.kernel_addr;
+    die_on(*(uint32_t*) l_params->param_block_signature != LINUX_HEADER_SIGNATURE,
+           "Kernel boot header does not contain magic signature. No Linux kernel (bzImage)?\n");
     die_on(l_params->param_block_version < TO_LINUX_BOOT_HEADER_VERSION(2, 10),
            "Kernel does not support boot protocol >= 2.10\n");
 
     printf("Info from Linux Boot Protocol Header:\n");
-    printf("  kernel_alignment: 0x%x\n", l_params->kernel_alignment);
+    printf("  boot_protocol:      major=%d, minor=%d\n", l_params->param_block_version >> 8, l_params->param_block_version & 0xff);
+    printf("  kernel_alignment:   0x%x\n", l_params->kernel_alignment);
     printf("  relocatable_kernel: %s\n", l_params->relocatable_kernel ? "true" : "false");
-    printf("  min_alignment: 0x%x\n", 0x1 << l_params->min_alignment);
-    printf("  pref_address: 0x%llx\n", l_params->pref_address);
+    printf("  min_alignment:      0x%x\n", 0x1 << l_params->min_alignment);
+    printf("  pref_address:       0x%llx\n", l_params->pref_address);
+    printf("  init_size:          0x%x\n", l_params->init_size);
     printf("\n");
 
     uint8_t *linux_header_end = (uint8_t *)(boot_params.kernel_addr + 0x201);
