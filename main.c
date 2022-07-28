@@ -154,8 +154,8 @@ static void linux_boot(const struct boot_params boot_params)
     printf("  init_size:          0x%x\n", l_params->init_size);
     printf("\n");
 
-    uint8_t *linux_header_end = (uint8_t *)(boot_params.kernel_addr + 0x201);
-    size_t linux_header_size = 0x202 + *linux_header_end - LINUX_HEADER_OFFSET;
+    const uint8_t *const linux_header_end = (uint8_t *)(boot_params.kernel_addr + 0x201);
+    const size_t linux_header_size = 0x202 + *linux_header_end - LINUX_HEADER_OFFSET;
 
     struct linux_params *linux_params = malloc(sizeof(*linux_params));
     memset(linux_params, 0, sizeof(*linux_params));
@@ -205,14 +205,10 @@ static void linux_boot(const struct boot_params boot_params)
     // and 64-bit Linux set their own GDT right after the entry point, and simply jumping to
     // the entry address works without any issues so far, so we're skipping this.
 
-    uint8_t setup_sects = linux_params->setup_hdr;
-
     // From spec: "For backwards compatibility, if the setup_sects field contains 0, the real value is 4."
-    if (setup_sects == 0) {
-        setup_sects = 4;
-    }
+    const uint8_t setup_sects = linux_params->setup_hdr == 0 ? 4 : linux_params->setup_hdr;
 
-    uintptr_t entry_ptr_32bit = boot_params.kernel_addr + (setup_sects + 1) * 512;
+    const uintptr_t entry_ptr_32bit = boot_params.kernel_addr + (setup_sects + 1) * 512;
 
     // An overflowing unsigned integer addition will simply wrap. Such an overflow can be
     // detected by checking whether the result is smaller than one of the original values.
