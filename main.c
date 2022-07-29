@@ -15,7 +15,7 @@
 static void dump_memory_map()
 {
     printf("Memory map:\n");
-    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
+    for (size_t i = 0; i < lib_sysinfo.n_memranges; i++) {
         struct memrange *memrange = &lib_sysinfo.memrange[i];
         printf("  Start: 0x%08llx, Size: 0x%08llx, Type: 0x%02x\n", memrange->base,
                memrange->size, memrange->type);
@@ -103,7 +103,7 @@ static struct boot_params get_boot_params_from_fw_cfg()
 // Check whether the given memory region is within a single usable coreboot memory region.
 static bool is_in_usable_coreboot_memory_region(const struct memory_region region)
 {
-    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
+    for (size_t i = 0; i < lib_sysinfo.n_memranges; i++) {
         const struct memrange *const memrange = &lib_sysinfo.memrange[i];
         const struct memory_region coreboot_region = {.addr = memrange->base,
                                                       .size = memrange->size};
@@ -166,7 +166,7 @@ static void linux_boot(const struct boot_params boot_params)
     printf("Setting up E820 map\n");
     // Coreboot already obtained the memory map. Simply copy it over into the kernel params.
     linux_params->e820_map_nr = lib_sysinfo.n_memranges;
-    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
+    for (size_t i = 0; i < lib_sysinfo.n_memranges; i++) {
         linux_params->e820_map[i].addr = lib_sysinfo.memrange[i].base;
         linux_params->e820_map[i].size = lib_sysinfo.memrange[i].size;
         linux_params->e820_map[i].type = lib_sysinfo.memrange[i].type;
