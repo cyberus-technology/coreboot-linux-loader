@@ -15,14 +15,14 @@
 static void dump_memory_map()
 {
     printf("Memory map:\n");
-    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
+    for (size_t i = 0; i < lib_sysinfo.n_memranges; i++) {
         struct memrange *memrange = &lib_sysinfo.memrange[i];
         printf("  Start: 0x%08llx, Size: 0x%08llx, Type: 0x%02x\n", memrange->base,
                memrange->size, memrange->type);
     }
 }
 
-static void die_on(const bool condition, const char *string, ...)
+static void die_on(const bool condition, const char *const string, ...)
 {
     if (condition) {
         dump_memory_map();
@@ -34,10 +34,15 @@ static void die_on(const bool condition, const char *string, ...)
     }
 }
 
+// Data provided by the VMM to the loader via the fw_cfg device.
 struct boot_params {
+    // Physical address of the kernel image.
     uintptr_t kernel_addr;
+    // Physical address of the initrd image.
     uintptr_t initrd_addr;
+    // Physical address of the initrd size.
     uintptr_t initrd_size_addr;
+    // Physical address of the cmd line string (a null-terminated C-string).
     uintptr_t cmdline_addr;
 };
 
@@ -70,7 +75,7 @@ static enum boot_protocol get_boot_protocol(const struct boot_params params)
 // Try to read a firmware config value from the given key.
 //
 // Returns 0 if the key does not exist.
-static uintptr_t try_get_fw_cfg_ptr(const char *key)
+static uintptr_t try_get_fw_cfg_ptr(const char *const key)
 {
     const uint16_t selector = fw_cfg_selector_for(key);
     uintptr_t value = 0;
@@ -84,7 +89,7 @@ static uintptr_t try_get_fw_cfg_ptr(const char *key)
 
 static struct boot_params get_boot_params_from_fw_cfg()
 {
-    struct boot_params params = {
+    const struct boot_params params = {
         .kernel_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/kernel_addr"),
         .initrd_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/initrd_addr"),
         .initrd_size_addr = try_get_fw_cfg_ptr("opt/de.cyberus-technology/initrd_size_addr"),
@@ -98,8 +103,8 @@ static struct boot_params get_boot_params_from_fw_cfg()
 // Check whether the given memory region is within a single usable coreboot memory region.
 static bool is_in_usable_coreboot_memory_region(const struct memory_region region)
 {
-    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
-        struct memrange *memrange = &lib_sysinfo.memrange[i];
+    for (size_t i = 0; i < lib_sysinfo.n_memranges; i++) {
+        const struct memrange *const memrange = &lib_sysinfo.memrange[i];
         const struct memory_region coreboot_region = {.addr = memrange->base,
                                                       .size = memrange->size};
 
@@ -137,8 +142,8 @@ static void linux_boot(const struct boot_params boot_params)
     printf("  pref_address: 0x%llx\n", l_params->pref_address);
     printf("\n");
 
-    char *linux_header_end = (char *)(boot_params.kernel_addr + 0x201);
-    size_t linux_header_size = 0x202 + *linux_header_end - LINUX_HEADER_OFFSET;
+    const uint8_t *const linux_header_end = (uint8_t *)(boot_params.kernel_addr + 0x201);
+    const size_t linux_header_size = 0x202 + *linux_header_end - LINUX_HEADER_OFFSET;
 
     struct linux_params *linux_params = malloc(sizeof(*linux_params));
     memset(linux_params, 0, sizeof(*linux_params));
@@ -146,8 +151,8 @@ static void linux_boot(const struct boot_params boot_params)
     die_on(LINUX_HEADER_OFFSET + linux_header_size > sizeof(*linux_params),
            "Invalid linux header size");
 
-    memcpy((char *)linux_params + LINUX_HEADER_OFFSET,
-           (const char *)(boot_params.kernel_addr + LINUX_HEADER_OFFSET),
+    memcpy((uint8_t *const)linux_params + LINUX_HEADER_OFFSET,
+           (const uint8_t *const)(boot_params.kernel_addr + LINUX_HEADER_OFFSET),
            linux_header_size); // load header
 
     die_on(linux_params->param_block_version < 0x0205,
@@ -161,7 +166,7 @@ static void linux_boot(const struct boot_params boot_params)
     printf("Setting up E820 map\n");
     // Coreboot already obtained the memory map. Simply copy it over into the kernel params.
     linux_params->e820_map_nr = lib_sysinfo.n_memranges;
-    for (int i = 0; i < lib_sysinfo.n_memranges; i++) {
+    for (size_t i = 0; i < lib_sysinfo.n_memranges; i++) {
         linux_params->e820_map[i].addr = lib_sysinfo.memrange[i].base;
         linux_params->e820_map[i].size = lib_sysinfo.memrange[i].size;
         linux_params->e820_map[i].type = lib_sysinfo.memrange[i].type;
@@ -190,14 +195,10 @@ static void linux_boot(const struct boot_params boot_params)
     // and 64-bit Linux set their own GDT right after the entry point, and simply jumping to
     // the entry address works without any issues so far, so we're skipping this.
 
-    uint8_t setup_sects = linux_params->setup_hdr;
-
     // From spec: "For backwards compatibility, if the setup_sects field contains 0, the real value is 4."
-    if (setup_sects == 0) {
-        setup_sects = 4;
-    }
+    const uint8_t setup_sects = linux_params->setup_hdr == 0 ? 4 : linux_params->setup_hdr;
 
-    uintptr_t entry_ptr_32bit = boot_params.kernel_addr + (setup_sects + 1) * 512;
+    const uintptr_t entry_ptr_32bit = boot_params.kernel_addr + (setup_sects + 1) * 512;
 
     // An overflowing unsigned integer addition will simply wrap. Such an overflow can be
     // detected by checking whether the result is smaller than one of the original values.
