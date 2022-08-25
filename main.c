@@ -122,8 +122,13 @@ static bool is_in_usable_coreboot_memory_region(const struct memory_region regio
     return false;
 }
 
-// Linux boot follows the Linux x86 32-bit Boot Protocol
+// Boots the provided payload according to the Linux x86 32-bit Boot Protocol
 // (https://www.kernel.org/doc/html/latest/x86/boot.html#bit-boot-protocol).
+//
+// Only bzImage Linux kernels are supported.
+//
+// We require Linux boot protocol 2.10 and above (v2.6.31 or later) as we read boot information
+// from the kernel image introduced with that version.
 static void linux_boot(const struct boot_params boot_params)
 {
     die_on(
@@ -135,6 +140,9 @@ static void linux_boot(const struct boot_params boot_params)
 
     // Print relevant information about how the Linux kernel would like to be booted
     const struct linux_params *const l_params = (const struct linux_params *const) boot_params.kernel_addr;
+    die_on(l_params->param_block_version < TO_LINUX_BOOT_HEADER_VERSION(2, 10),
+           "Kernel too old. Doesn't support boot protocol >= 2.10\n");
+
     printf("Info from Linux Boot Protocol Header:\n");
     printf("  kernel_alignment: 0x%x\n", l_params->kernel_alignment);
     printf("  relocatable_kernel: %s\n", l_params->relocatable_kernel ? "true" : "false");
@@ -155,8 +163,6 @@ static void linux_boot(const struct boot_params boot_params)
            (const uint8_t *)(boot_params.kernel_addr + LINUX_HEADER_OFFSET),
            linux_header_size); // load header
 
-    die_on(linux_params->param_block_version < 0x0205,
-           "Kernel does not support boot protocol >= 2.05\n");
     die_on(
         !linux_params->relocatable_kernel,
         "Kernel is not relocatable. The Linux kernel must be built with CONFIG_RELOCATABLE=y\n");

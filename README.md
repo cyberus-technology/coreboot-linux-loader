@@ -6,7 +6,8 @@ directly boots into a kernel that is available in memory.
 Supported kernels are:
 
 * Linux kernel image. The boot follows the Linux [x86 32-bit Boot
-Protocol](https://www.kernel.org/doc/html/latest/x86/boot.html#bit-boot-protocol).
+Protocol](https://www.kernel.org/doc/html/latest/x86/boot.html#bit-boot-protocol). We support kernels in bzImage format
+  that follow boot protocol version 2.10 and above (v2.6.31 or later).
 * 32 bit ELF binary. The boot is [Multiboot](https://www.gnu.org/software/grub/manual/multiboot/multiboot.html) compliant (version 1 only).
 
 The payload assumes that a qemu [fw_cfg](https://github.com/qemu/qemu/blob/master/docs/specs/fw_cfg.rst) device is available and obtains the exact memory addresses from this device. During the boot process, the payload inspects the following items in `fw_cfg`:
