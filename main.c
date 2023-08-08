@@ -275,6 +275,10 @@ static void elf_boot(const struct boot_params params)
         const uint8_t *current_elf_segment_in_memory =
             elf_addr_in_memory + current_program_header->offset;
 
+        if (current_program_header->type != 1 /* not LOAD segment */) {
+            continue;
+        }
+
         printf(
             "Loading ELF segment (type 0x%x, offset 0x%x, vaddr 0x%x, paddr 0x%x, filesize 0x%x, memsize 0x%x)\n",
             current_program_header->type, current_program_header->offset,
