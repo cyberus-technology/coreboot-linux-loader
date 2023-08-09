@@ -290,7 +290,7 @@ static void elf_boot(const struct boot_params params)
         // virtual memory layout that matches the segment's vaddr.
         const struct memory_region elf_region = {
             .addr = (uintptr_t)current_program_header->paddr,
-            .size = current_program_header->filesize + current_program_header->memsize};
+            .size = current_program_header->memsize};
         die_on(elf_region.addr == 0,
                "Unsupported ELF kernel. ELF segment has physical address 0x0.\n");
 
